@@ -183,7 +183,7 @@ def astar_search(
         # Pop the next SearchNode instance (pop_node) from the heap (i.e. the next node with the lowest estimated cost)
         # pop_node is the node that will be expanded in this round!
         # HINT: Use the function heappop() of the heapq module: https://pythontic.com/algorithms/heapq/heappop
-        (f, h, _tie, pop_node) = (None, float("inf"), None, None) # update this line to implement step 1 
+        (f, h, _tie, pop_node) = heapq.heappop(open) # update this line to implement step 1 
 
         # Update the best cost value
         if h < besth:
@@ -193,8 +193,8 @@ def astar_search(
         # ---- Step 2 ----
         # Use the node to be expanded to get its state and its cost g (i.e. the path length to the node). 
         # See searchspace.py
-        pop_state =  None # state in node, update this line to implement step 2
-        pop_g =  None # cost g of node, update this line to implement step 2
+        pop_state =  pop_node.state # state in node, update this line to implement step 2
+        pop_g =  pop_node.g # cost g of node, update this line to implement step 2
 
         # ---- Step 3 ----
         # Only expand the node if its cost g is the lowest cost known for the node's state. 
@@ -202,19 +202,30 @@ def astar_search(
         # hence can disregard it.
         # HINT: The costs found in previous loops are stored with their associated state  
         #       in the state_cost dictionary (see before loop)
+        if state_cost[pop_state] == pop_g:
         # If the cost g of the node is equal to the lowest cost known for the node's state (Step 5):
             # ---- Step 4 ----
             # Increase the expansions counter and optionally print it
-
+            expansions += 1
+            print(expansions)
             # ---- Step 5 ----
             # If the goal of the task has been reach in the node's state, 
             # then extract the solution and return it!
             # HINT: You can extract the solution to the task, using the SearchNode method extract_solution() 
-           
+            if task.goal_reached(pop_state):
+                logging.info("Goal reached. Start extraction of solution.")
+                logging.info("%d Nodes expanded" % expansions)
+                return pop_node.extract_solution()
+            rplan = None
             # ---- Step 6 ----
             # Else create and add each neighbor node of the node to the heap if it is worth exploring
             # HINT: You can create neighbor nodes, using the SearchNode method make_child_node()
-            # For every neighbor state of the node's state:
+            if use_relaxed_plan:
+                (rh, rplan) = heuristic.calc_h_with_plan(
+                    searchspace.make_root_node(pop_state)
+                )
+                logging.debug("relaxed plan %s " % rplan)
+                # For every neighbor state of the node's state:
                 # i) Create a neighbor node 
                 # ii) Calculate the h cost of the neighbor node using the callable parameter "heuristic" 
                 #     (see above how the h cost was calculated for the root node)
@@ -228,9 +239,20 @@ def astar_search(
                 #     the node to reach the state in a cheaper way. Go to Step 7.
                 #     Else, continue to a new round (the next neighbor state), since we can 
                 #     already reach the state in a cheaper way discovered in the past.
+                for op, succ_state in task.get_successor_states(pop_state):
+                    if use_relaxed_plan:
+                        if rplan and not op.name in rplan:
+                            # ignore this operator if we use the relaxed plan
+                            # criterion
+                            logging.debug(
+                                "removing operator %s << not a "
+                                "preferred operator" % op.name
+                            )
+                            continue
+                        else:
+                            logging.debug("keeping operator %s" % op.name)
 
-
-                # If one of the conditions in iv) holds add the neighbor node to the heap
+                    # If one of the conditions in iv) holds add the neighbor node to the heap
                     # ---- Step 7 ----
                     # i) Increase node_tiebreaker by 1
                     # ii) Store the cost g of the neighbor node's state to the state_cost dictionary
@@ -243,6 +265,18 @@ def astar_search(
                     #      The node is stored in a heap so that nodes are ordered based on their 
                     #      estimated cost. See more here: https://pythontic.com/algorithms/heapq/heappush
                     #      See also above, how the root node was stored in the heap.
+                    succ_node = searchspace.make_child_node(pop_node, op, succ_state)
+                    h = heuristic(succ_node)
+                    if h == float("inf"):
+                        # don't bother with states that can't reach the goal anyway
+                        continue
+                    old_succ_g = state_cost.get(succ_state, float("inf"))
+                    if succ_node.g < old_succ_g:
+                        # We either never saw succ_state before, or we found a
+                        # cheaper path to succ_state than previously.
+                        node_tiebreaker += 1
+                        heapq.heappush(open, make_open_entry(succ_node, h, node_tiebreaker))
+                        state_cost[succ_state] = succ_node.g
 
         # Increase the counter by 1
         counter += 1
